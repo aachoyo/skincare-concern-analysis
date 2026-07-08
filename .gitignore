@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Raw data (download separately — see data/raw/README.md)
+data/raw/cosmetics.csv
+
+# Regenerable interim outputs
+data/interim/cleaned_cosmetics.csv
+data/interim/manual_review.csv
