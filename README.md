@@ -55,6 +55,16 @@ same fragrance listed 18th. Products are then split into **Budget / Mid-Range / 
 tiers at the 33rd and 67th price percentiles. Full detail on severity assignment,
 position weighting, and statistics is in [`methodology.md`](methodology.md).
 
+**4. Cleaning and robustness checks:**
+- Repeated ingredients within one listing (e.g. a "key ingredients" list appended to the
+  full list) are counted once, at their first (real) position.
+- Unrated products (rating 0 = no reviews) and multi-product sets/kits/duos, whose
+  ingredient lists combine several products, are excluded, leaving **1,433 products**.
+- Price and concern score are both right-skewed, so price relationships are reported with
+  Spearman's ρ and with Pearson's r on log(price), not just raw Pearson's r.
+- Because the score is a sum, longer ingredient lists score higher almost by default. As a
+  check, the analysis also looks at concern *per ingredient* and controls for list length.
+
 **Strengths and limitations of the score:** It is simple, interpretable, and
 position-weighted, which makes it a reasonable *proxy* for formulation concern. But it
 does not capture concentration, ingredient interactions, or the fact that some flagged
@@ -66,17 +76,19 @@ formulation, skin type, and usage.
 
 | # | Question | Result |
 |---|----------|--------|
-| 1 | Price vs. concern score | Very weak positive relationship (r = 0.12, p < 0.001). Price explains ~1.4% of variation (R² = 0.014). |
-| 1b | Concern score by price tier | Low-to-moderate across all tiers; Premium does not consistently score lower than Budget. |
-| 2 | Rating vs. concern score | No meaningful linear relationship (r ≈ 0.00). Concern varies widely even among 4–5 star products. |
-| 3 | Rating by price tier | Ratings similarly high (median low-4s) across all tiers. |
+| 1 | Price vs. concern score | Very weak *positive* relationship (Spearman ρ = 0.15; Pearson r = 0.17 on log price, R² ≈ 0.03). If anything, pricier products have slightly *more* flagged ingredients, not fewer. |
+| 1a | Price vs. concern, controlling for list length | The relationship disappears (concern per ingredient: ρ = 0.00). Pricier products tend to have longer ingredient lists, and that alone explains the weak positive link. |
+| 1b | Concern score by price tier | Median 2.2 (Budget), 3.1 (Mid-Range), 3.4 (Premium). Premium never scores lower than Budget. |
+| 2 | Rating vs. concern score | No meaningful relationship (ρ = −0.08). Concern varies widely even among 4–5 star products. |
+| 3 | Rating by price tier | Ratings similarly high (median 4.2–4.3) across all tiers. |
 
 ![Price vs concern score](figures/plot1_price_vs_concern_score.png)
 ![Concern score by price tier](figures/plot2_price_tier_vs_concern_score.png)
 ![Rating vs concern score](figures/plot3_rating_vs_concern_score.png)
 ![Rating by price tier](figures/plot4_price_tier_vs_rating.png)
 
-**Takeaway:** Neither price nor rating reliably signals a cleaner formulation. Higher price
+**Takeaway:** Neither price nor rating signals a cleaner formulation. Once ingredient-list
+length is accounted for, price has no relationship with ingredient concern at all. Higher price
 may reflect brand image, packaging, texture, or product experience rather than
 lower-concern ingredients, and a star rating captures overall experience, not
 formulation. The price-quality rule of thumb is not useless, but it should not be trusted

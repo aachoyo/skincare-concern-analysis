@@ -97,11 +97,28 @@ and the cutoffs are data-driven rather than arbitrary round numbers:
 
 ## 6. Statistics reported
 
-Relationships are summarized with Pearson correlation (`scipy.stats.linregress`), reporting
-`r`, `p`, and R² where relevant. With ~1,400 products, even a very weak correlation can be
-"statistically significant," so the writeup leans on effect size (r and R²) rather than
-p-values alone. The price–concern relationship, for instance, is significant but explains
-only about 1 to 2% of variance: statistically real but practically negligible.
+**Exclusions.** Unrated products (rating 0, meaning no reviews) and multi-product
+sets/kits/duos/trios (matched by name) are dropped, since a set's ingredient list combines
+several products. Repeated ingredients within a listing are de-duplicated, keeping the first
+(real) position. This leaves 1,433 products.
+
+**Skew.** Price is strongly right-skewed (median ≈ $43, max $370) and the concern score is
+right-skewed with a spike at 0. Pearson's r on raw values can be pulled around by a few
+outliers, so each relationship is reported three ways: Pearson r on raw values, Pearson r
+on log(price), and Spearman's ρ (rank-based, robust to skew). The price-vs-concern plot
+uses a log price axis.
+
+**List length.** Because the concern score is a *sum* over flagged matches, products with
+longer ingredient lists score higher almost automatically (ingredient count vs. concern:
+ρ ≈ 0.60), and pricier products tend to have longer lists. Two checks address this: a
+per-ingredient concern score (score ÷ number of ingredients), and a regression of concern
+score on log(price) plus ingredient count. Both show that the weak price–concern
+relationship disappears once list length is accounted for.
+
+With ~1,400 products, even a very weak correlation can be "statistically significant," so
+the writeup leans on effect size (r, ρ and R²) rather than p-values alone. The raw
+price–concern relationship is significant but explains only about 2 to 3% of variance:
+statistically real but practically negligible, and explained by list length.
 
 ## 7. Data provenance and reproducibility note
 
@@ -110,7 +127,9 @@ final cleaned product file after the INCIdecoder scrape and manual review. The v
 shipped in this repo, `data/processed/combined_cosmetics.csv`, is the equivalent merged
 product file produced by `dataset_build.py`; re-running `analysis.py` against it reproduces
 the same ranking of products and the same qualitative findings, with correlation values
-within rounding of the deck (price–concern r ≈ 0.13 vs 0.12 reported).
+within rounding of the deck (price–concern r ≈ 0.13 vs 0.12 reported). The exclusions,
+de-duplication and robustness checks in §6 were added after the deck, so the README
+figures differ slightly from the slides.
 
 The raw Kaggle file (`cosmetics.csv`) is intentionally **not** committed. Note that the
 processed CSVs still contain Kaggle-derived product fields (name, brand, price, rating,
