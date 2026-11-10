@@ -113,16 +113,28 @@ def compute_concern_score(ingredients_string):
     - concern score
     - flagged ingredient details
     - number of flagged ingredients found
+    - total number of (unique) ingredients
     """
 
     if pd.isna(ingredients_string) or str(ingredients_string).strip() == "":
-        return 0.0, "", 0
+        return 0.0, "", 0, 0
 
     ingredient_list = [
         clean_ingredient_text(i)
         for i in str(ingredients_string).split(",")
         if str(i).strip() != ""
     ]
+
+    # Some listings repeat ingredients (e.g. a "key ingredients" list appended to
+    # the full INCI list). Keep only the first occurrence of each ingredient,
+    # since that is its real position, so repeats are not double counted.
+    seen = set()
+    deduped = []
+    for ingredient in ingredient_list:
+        if ingredient not in seen:
+            seen.add(ingredient)
+            deduped.append(ingredient)
+    ingredient_list = deduped
 
     total_ingredients = len(ingredient_list)
 
@@ -150,7 +162,7 @@ def compute_concern_score(ingredients_string):
 
                 break
 
-    return round(total_score, 4), " | ".join(details), matched_count
+    return round(total_score, 4), " | ".join(details), matched_count, total_ingredients
 
 
 def add_regression_line(ax, x, y, color="black"):
@@ -186,6 +198,22 @@ products_clean = products.dropna(
 
 print(f"Products with valid price, rating, and ingredients: {len(products_clean)}")
 
+# A rating of 0 means the product has no reviews, not a zero-star rating.
+unrated = products_clean[COL_RATING] <= 0
+print(f"Dropping unrated products (rating 0): {unrated.sum()}")
+products_clean = products_clean[~unrated].copy()
+
+# Sets, kits, duos etc. combine several products' ingredient lists into one,
+# which inflates their concern score, so they are excluded.
+SET_PATTERN = r"\b(?:set|kit|trio|duo|regimen|bundle|starter)\b"
+is_set = products_clean[COL_NAME].fillna("").str.contains(
+    SET_PATTERN, case=False, regex=True
+)
+print(f"Dropping multi-product sets/kits: {is_set.sum()}")
+products_clean = products_clean[~is_set].copy()
+
+print(f"Products in final analysis: {len(products_clean)}")
+
 
 # ------------------------------------------------------------
 # STEP 5 — COMPUTE CONCERN SCORES
@@ -198,6 +226,17 @@ results = products_clean[COL_INGREDIENTS].apply(compute_concern_score)
 products_clean["concern_score"] = results.apply(lambda x: x[0])
 products_clean["flagged_detail"] = results.apply(lambda x: x[1])
 products_clean["flagged_count"] = results.apply(lambda x: x[2])
+products_clean["ingredient_count"] = results.apply(lambda x: x[3])
+
+# The concern score is a sum, so products with longer ingredient lists score
+# higher almost by default. As a robustness check, also compute concern per
+# ingredient, which removes the effect of list length.
+products_clean["concern_per_ingredient"] = np.where(
+    products_clean["ingredient_count"] > 0,
+    products_clean["concern_score"] / products_clean["ingredient_count"],
+    0.0
+)
+products_clean["log_price"] = np.log(products_clean[COL_PRICE])
 
 print("\nConcern score summary:")
 print(products_clean["concern_score"].describe().round(3))
@@ -255,25 +294,60 @@ print(
     .round(3)
 )
 
-price_r, price_p = stats.pearsonr(
-    products_clean[COL_PRICE],
-    products_clean["concern_score"]
-)
+# Price and concern score are both right-skewed (a few very expensive products,
+# many products with a score of 0), so Pearson's r on raw values can be pulled
+# around by outliers. We therefore report three versions:
+#   - Pearson r on raw price (original analysis)
+#   - Pearson r on log(price), which reduces the skew in price
+#   - Spearman's rho, which uses ranks and is robust to skew and outliers
 
-rating_r, rating_p = stats.pearsonr(
-    products_clean[COL_RATING],
-    products_clean["concern_score"]
-)
-
-price_rating_r, price_rating_p = stats.pearsonr(
-    products_clean[COL_PRICE],
-    products_clean[COL_RATING]
-)
+def correlation_report(x, y, label):
+    pearson_r, pearson_p = stats.pearsonr(x, y)
+    spearman_rho, spearman_p = stats.spearmanr(x, y)
+    print(
+        f"{label}: Pearson r = {pearson_r:.3f} (p = {pearson_p:.3g}, "
+        f"R^2 = {pearson_r ** 2:.3f}) | Spearman rho = {spearman_rho:.3f} "
+        f"(p = {spearman_p:.3g})"
+    )
+    return pearson_r, spearman_rho
 
 print("\nCorrelations:")
-print(f"Price vs Concern Score: r = {price_r:.3f}, p = {price_p:.3f}")
-print(f"Rating vs Concern Score: r = {rating_r:.3f}, p = {rating_p:.3f}")
-print(f"Price vs Rating: r = {price_rating_r:.3f}, p = {price_rating_p:.3f}")
+price_r, price_rho = correlation_report(
+    products_clean[COL_PRICE], products_clean["concern_score"],
+    "Price vs Concern Score"
+)
+log_price_r, _ = correlation_report(
+    products_clean["log_price"], products_clean["concern_score"],
+    "log(Price) vs Concern Score"
+)
+correlation_report(
+    products_clean[COL_PRICE], products_clean["concern_per_ingredient"],
+    "Price vs Concern per Ingredient"
+)
+correlation_report(
+    products_clean["ingredient_count"], products_clean["concern_score"],
+    "Ingredient Count vs Concern Score"
+)
+rating_r, rating_rho = correlation_report(
+    products_clean[COL_RATING], products_clean["concern_score"],
+    "Rating vs Concern Score"
+)
+correlation_report(
+    products_clean[COL_PRICE], products_clean[COL_RATING],
+    "Price vs Rating"
+)
+
+# Regression of concern score on log(price), controlling for ingredient count
+X = np.column_stack([
+    np.ones(len(products_clean)),
+    products_clean["log_price"],
+    products_clean["ingredient_count"],
+])
+coef, *_ = np.linalg.lstsq(X, products_clean["concern_score"], rcond=None)
+print(
+    "\nOLS: concern_score ~ log(price) + ingredient_count -> "
+    f"log(price) coef = {coef[1]:.3f}, ingredient_count coef = {coef[2]:.3f}"
+)
 
 
 # ------------------------------------------------------------
@@ -301,14 +375,24 @@ ax.scatter(
     edgecolors="none"
 )
 
-add_regression_line(
-    ax,
-    products_clean[COL_PRICE].values,
-    products_clean["concern_score"].values,
-    color=NAVY
+# Regression on log(price), drawn back on a log-scaled price axis
+slope, intercept, _, _, _ = stats.linregress(
+    products_clean["log_price"], products_clean["concern_score"]
+)
+x_line = np.linspace(
+    products_clean["log_price"].min(), products_clean["log_price"].max(), 300
+)
+ax.plot(
+    np.exp(x_line),
+    slope * x_line + intercept,
+    color=NAVY,
+    linewidth=2,
+    label=f"Spearman ρ = {price_rho:.2f}, Pearson r (log price) = {log_price_r:.2f}"
 )
 
-ax.set_xlabel("Product Price")
+ax.set_xscale("log")
+ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+ax.set_xlabel("Product Price (log scale)")
 ax.set_ylabel("Ingredient Concern Score")
 ax.set_title("Price vs. Ingredient Concern Score", fontweight="bold")
 ax.legend()
@@ -434,6 +518,8 @@ output_cols = [
     "price_tier",
     "concern_score",
     "flagged_count",
+    "ingredient_count",
+    "concern_per_ingredient",
     "flagged_detail"
 ]
 
